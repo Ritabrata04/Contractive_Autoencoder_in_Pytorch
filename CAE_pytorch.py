@@ -63,21 +63,23 @@ class CAE(nn.Module):
 
 
 	def encoder(self, x):
-		h1 = self.relu(self.fc1(x.view(-1, 784)))
-		return h1
+		a1 = self.fc1(x.view(-1, 784))
+		h1 = self.relu(a1)
+		return h1, a1
+		
 
 	def decoder(self,z):
 		h2 = self.sigmoid(self.fc2(z))
 		return h2
 
 	def forward(self, x):
-            h1 = self.encoder(x)
+            h1, a1 = self.encoder(x)
             h2 = self.decoder(h1)
-            return h1, h2
+            return h1, a1, h2
 
         # Writing data in a grid to check the quality and progress
 	def samples_write(self, x, epoch):
-		_, samples = self.forward(x)
+		_, _, samples = self.forward(x)
 		#pdb.set_trace()
 		samples = samples.data.cpu().numpy()[:16]
 		fig = plt.figure(figsize=(4, 4))
@@ -126,7 +128,10 @@ def loss_function(W, x, recons_x, h, lam):
     mse = mse_loss(recons_x, x)
     # Since: W is shape of N_hidden x N. So, we do not need to transpose it as
     # opposed to #1
-    dh = h * (1 - h) # Hadamard product produces size N_batch x N_hidden
+    # dh = h * (1 - h) # Hadamard product produces size N_batch x N_hidden
+	# f'(a) via autograd -> correct for ANY activation, not just sigmoid
+	dh, = torch.autograd.grad(h, a, grad_outputs=torch.ones_like(h),
+							  create_graph=True)
     # Sum through the input dimension to improve efficiency, as suggested in #1
     w_sum = torch.sum(Variable(W)**2, dim=1)
     # unsqueeze to avoid issues with torch.mv
@@ -152,7 +157,7 @@ def train(epoch):
 
         optimizer.zero_grad()
 
-        hidden_representation, recons_x = model(data)
+        hidden_representation, pre_activation, recons_x = model(data)
 
         # Get the weights
         # model.state_dict().keys()
@@ -160,8 +165,7 @@ def train(epoch):
         # (In future I will try to make it automatic)
         W = model.state_dict()['fc1.weight']
         loss = loss_function(W, data.view(-1, 784), recons_x,
-                             hidden_representation, lam)
-
+							 hidden_representation, pre_activation, lam)
         loss.backward()
         train_loss += loss.data[0]
         optimizer.step()
